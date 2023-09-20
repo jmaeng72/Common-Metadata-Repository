@@ -249,6 +249,7 @@
        :existing-concept-id concept_id
        :existing-native-id native_id})))
 
+;; FIXME
 (defn validate-collection-not-associated-with-another-variable-with-same-name
   "Validates that collection in the concept is not associated with a different
   variable, which has the same name as the variable in the concept.
@@ -330,7 +331,7 @@
                (= concept-type (common-concepts/concept-id->type concept-id)))
       concept-id)))
 
-
+;; FIXME
 (defn get-granule-concept-ids
   [db provider native-id]
   (let [table (tables/get-table-name provider :granule)
@@ -492,6 +493,7 @@
                          table)]]
        (j/execute! conn stmt)))))
 
+;; FIXME
 (defn get-concept-type-counts-by-collection
   [db concept-type provider]
   (let [table (tables/get-table-name provider :granule)
@@ -542,6 +544,7 @@
   (j/db-do-commands this "DELETE FROM cmr_variables")
   (j/db-do-commands this "DELETE FROM cmr_generic_documents"))
 
+;; FIXME
 (defn get-expired-concepts
   [this provider concept-type]
   (j/with-db-transaction
@@ -607,23 +610,26 @@
          sql (if small
                (format "select t1.concept_id, t1.revision_id from %s t1 inner join
                          (select concept_id, revision_id from %s
-                         where provider_id = '%s' and DELETED = 1 and REVISION_DATE < ?
+                         where provider_id = ? and DELETED = 1 and REVISION_DATE < ?
                          FETCH FIRST %d ROWS ONLY) t2
                          on t1.concept_id = t2.concept_id and t1.REVISION_ID <= t2.revision_id"
-                       table table provider-id limit)
+                       table table limit)
                (format "select t1.concept_id, t1.revision_id from %s t1 inner join
                          (select concept_id, revision_id from %s
                          where DELETED = 1 and REVISION_DATE < ?
                          FETCH FIRST %d ROWS ONLY) t2
                          on t1.concept_id = t2.concept_id and t1.REVISION_ID <= t2.revision_id"
                        table table limit))
-         stmt [sql (cr/to-sql-time tombstone-cut-off-date)]
+         stmt (if small
+                [sql provider-id (cr/to-sql-time tombstone-cut-off-date)]
+                [sql (cr/to-sql-time tombstone-cut-off-date)])
          result (su/query conn stmt)]
      ;; create tuples of concept-id/revision-id to remove
      (doall (map (fn [{:keys [concept_id revision_id]}]
                    [concept_id revision_id])
                  result)))))
 
+;; FIXME ;; TODO test and see if I can parameterize count too
 (defn get-old-concept-revisions
   [this provider concept-type max-revisions limit]
   (j/with-db-transaction
@@ -634,17 +640,20 @@
          ;; Note: the 'where rownum' clause limits the number of concept-ids that are returned,
          ;; not the number of concept-id/revision-id pairs. All revisions are returned for
          ;; each returned concept-id.
-         stmt (if small
+         sql (if small
                 [(format "select concept_id, revision_id from %s
                            where concept_id in
-                           (select concept_id from %s where provider_id = '%s' group by
+                           (select concept_id from %s where provider_id = ? group by
                            concept_id having count(*) > %d FETCH FIRST %d ROWS ONLY)"
-                         table table provider-id max-revisions limit)]
+                         table table max-revisions limit)]
                 [(format "select concept_id, revision_id from %s
                            where concept_id in
                            (select concept_id from %s group by
                            concept_id having count(*) > %d FETCH FIRST %d ROWS ONLY)"
                          table table max-revisions limit)])
+         stmt (if small
+                [sql provider-id]
+                [sql])
          result (su/query conn stmt)
          ;; create a map of concept-ids to sequences of all returned revisions
          concept-id-rev-ids-map (reduce (fn [memo concept-map]
